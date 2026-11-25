@@ -5908,20 +5908,6 @@ impl Host {
         // SAFETY: our swap chain, list and a live source texture.
         unsafe {
             let index = p.swap_chain.GetCurrentBackBufferIndex();
-            if frame <= 24 || (600..=1200).contains(&frame) || frame % 256 == 0 {
-                tracing::info!(
-                    frame,
-                    token = plane.token,
-                    planes,
-                    count = plane.count,
-                    index,
-                    ?resource,
-                    width = desc.Width,
-                    height = desc.Height,
-                    format = desc.Format.0,
-                    "present trace"
-                );
-            }
             let Ok(back) = p.swap_chain.GetBuffer::<ID3D12Resource>(index) else {
                 return None;
             };
@@ -5987,8 +5973,8 @@ impl Host {
                 crate::capture::save_read_back(frame, &buffer, &footprint);
             }
             let presented = p.swap_chain.Present(0, DXGI_PRESENT(0));
-            if let Err(e) = &presented {
-                tracing::warn!(frame, error = ?e, "swap chain present failed");
+            if presented.is_err() {
+                tracing::warn!(frame, error = ?presented, "swap chain present failed");
             }
             p.meter.frame(p.hwnd);
             #[cfg(feature = "diagnostics")]

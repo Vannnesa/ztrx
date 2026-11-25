@@ -825,6 +825,16 @@ extern "system" fn present(
         && let Some(texture) = crate::resource::host_resource(resource)
         && let Some(host) = crate::host::host()
     {
+        if frame <= 24 || (600..=1200).contains(&frame) || frame % 256 == 0 {
+            tracing::info!(
+                frame,
+                token = plane.token,
+                planes,
+                count = plane.count,
+                ?resource,
+                "present trace"
+            );
+        }
         const COPY_SOURCE: u32 = 0x800;
         let state = crate::resource::host_transition(resource, COPY_SOURCE)
             .map_or(COPY_SOURCE, |(_, before)| before);
