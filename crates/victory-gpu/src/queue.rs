@@ -826,12 +826,23 @@ extern "system" fn present(
         && let Some(host) = crate::host::host()
     {
         if frame <= 24 || (600..=1200).contains(&frame) || frame % 256 == 0 {
+            static LAST_DRAWN: AtomicU64 = AtomicU64::new(0);
+            static LAST_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+            let drawn = crate::draw::drawn();
+            let dispatched = crate::draw::dispatched();
+            // SAFETY: a live resource.
+            let desc = unsafe { texture.GetDesc() };
             tracing::info!(
                 frame,
                 token = plane.token,
                 planes,
                 count = plane.count,
                 ?resource,
+                draws = drawn - LAST_DRAWN.swap(drawn, Ordering::Relaxed),
+                dispatches = dispatched - LAST_DISPATCHED.swap(dispatched, Ordering::Relaxed),
+                width = desc.Width,
+                height = desc.Height,
+                format = desc.Format.0,
                 "present trace"
             );
         }
