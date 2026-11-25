@@ -967,6 +967,14 @@ mod tests {
         stores_v1(&[0x7E04_028B, 0xDACC_0000, 0x0100_0200]).unwrap();
     }
 
+    /// `v_permlanex16_b32` was the converter's "is not supported" for a
+    /// compute shader in the title; each lane reads the other 16-lane row.
+    #[test]
+    fn a_permlanex16_reads_the_other_row() {
+        // v_mov_b32 v1, 1; v_permlanex16_b32 v1, v1, 0, 0
+        stores_v1(&[0x7E02_0281, 0xD778_0001, 0x0201_0101]).unwrap();
+    }
+
     /// A carry-in reading a join of compares after a divergent branch. A
     /// lane that skipped the inner compare has VCC clear there (VOPC clears
     /// inactive lanes), not the first compare's bit, so the join is no

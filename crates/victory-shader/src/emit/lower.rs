@@ -1262,6 +1262,7 @@ impl<'a> Lower<'a> {
                 let n = i.name();
                 n.starts_with("ds_swizzle")
                     || n.contains("permute")
+                    || n.starts_with("v_permlane")
                     || n.starts_with("v_mbcnt")
                     || matches!(n, "v_readlane_b32" | "v_writelane_b32")
                     || matches!(&i.fields, Fields::Valu(v) if v.dpp.is_some())
@@ -6509,6 +6510,76 @@ impl<'a> Lower<'a> {
         Ok((r, enable))
     }
 
+    /// `v_permlanex16_b32`: each lane reads the other 16-lane row of its
+    /// 32-lane half, at the lane its 4-bit selector names. The selectors are
+    /// the 16 nibbles of `{src2, src1}` (lanes 0-7 from `src1`, 8-15 from
+    /// `src2`, then again for lanes 16-31). A 4-bit selector cannot leave the
+    /// row, so `bound_ctrl` has nothing to do here. With `fi` clear and the
+    /// instruction under a lane guard, a source outside the active lanes
+    /// reads 0, as on the console; `fi` set has no DXIL equivalent
+    /// (`waveReadLaneAt` is undefined for an inactive source), so its
+    /// inactive-lane value is whatever the host returns.
+    fn permlanex16(&mut self, inst: &Inst, guard: Option<V>) -> Result<V, Why> {
+        self.cross_lane(false)?;
+        let Fields::Valu(v) = &inst.fields else {
+            unreachable!()
+        };
+        let c = self.cur;
+        let x = self.src(inst, 0)?;
+        let s1 = self.src(inst, 1)?;
+        let s2 = self.src(inst, 2)?;
+        let lane = self.lane_index();
+        let (k2, k7, k8, k15, k16) = (
+            self.s.m.i32(2),
+            self.s.m.i32(7),
+            self.s.m.i32(8),
+            self.s.m.i32(15),
+            self.s.m.i32(16),
+        );
+        let nib = self.s.m.bin(c, Bin::And, lane, k15);
+        let from_s1 = self.s.m.cmp(c, pred::IULT, nib, k8);
+        let idx = self.s.m.bin(c, Bin::And, nib, k7);
+        let sh = self.s.m.bin(c, Bin::Shl, idx, k2);
+        let pick = |l: &mut Self, s: V| {
+            let t = l.s.m.bin(c, Bin::LShr, s, sh);
+            l.s.m.bin(c, Bin::And, t, k15)
+        };
+        let a = pick(self, s1);
+        let b = pick(self, s2);
+        let pick = self.s.m.select(c, from_s1, a, b);
+        // The other row of this 32-lane half, then the selected lane in it.
+        let other = self.s.m.bin(c, Bin::Xor, lane, k16);
+        let not15 = self.s.m.i32(!15u32);
+        let base = self.s.m.bin(c, Bin::And, other, not15);
+        let src_lane = self.s.m.bin(c, Bin::Or, base, pick);
+        let x = self.read_lane(x, src_lane);
+        if v.opsel & 1 != 0 || guard.is_none() {
+            return Ok(x);
+        }
+        // fi clear under a lane guard: a source lane outside EXEC gives 0.
+        let i32t = self.s.t.i32;
+        let four = self.s.m.named_struct("dx.types.fouri32", vec![i32t; 4]);
+        let yes = self.s.m.bool(true);
+        let ballot = self
+            .s
+            .op(c, "waveActiveBallot", Attr::NoUnwind, four, 116, &[yes]);
+        let lo = self.s.m.extract(c, ballot, 0);
+        let hi = self.s.m.extract(c, ballot, 1);
+        let (k32, k31, one, zero) = (
+            self.s.m.i32(32),
+            self.s.m.i32(31),
+            self.s.m.i32(1),
+            self.s.m.i32(0),
+        );
+        let low = self.s.m.cmp(c, pred::IULT, src_lane, k32);
+        let word = self.s.m.select(c, low, lo, hi);
+        let sh = self.s.m.bin(c, Bin::And, src_lane, k31);
+        let bit = self.s.m.bin(c, Bin::LShr, word, sh);
+        let bit = self.s.m.bin(c, Bin::And, bit, one);
+        let active = self.s.m.cmp(c, pred::NE, bit, zero);
+        Ok(self.s.m.select(c, active, x, zero))
+    }
+
     fn valu_op(&mut self, inst: &Inst, guard: Option<V>) -> Result<(), Why> {
         let Fields::Valu(v) = &inst.fields else {
             unreachable!()
@@ -7315,6 +7386,10 @@ impl<'a> Lower<'a> {
                 } else {
                     mine
                 };
+                int(self, r)
+            }
+            "v_permlanex16_b32" => {
+                let r = self.permlanex16(inst, guard)?;
                 int(self, r)
             }
             _ => {
