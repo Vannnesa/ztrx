@@ -5908,7 +5908,7 @@ impl Host {
         // SAFETY: our swap chain, list and a live source texture.
         unsafe {
             let index = p.swap_chain.GetCurrentBackBufferIndex();
-            if frame <= 24 || frame % 256 == 0 {
+            if frame <= 24 || (600..=1200).contains(&frame) || frame % 256 == 0 {
                 tracing::info!(
                     frame,
                     token = plane.token,
