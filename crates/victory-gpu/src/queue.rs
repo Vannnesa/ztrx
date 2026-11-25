@@ -588,8 +588,8 @@ extern "system" fn execute(this: This, count: u32, lists: *const This) {
 /// The start of a present plane: frame token, then the plane's resources.
 #[repr(C)]
 pub(crate) struct Plane {
-    token: u64,
-    count: u32,
+    pub(crate) token: u64,
+    pub(crate) count: u32,
     resources: *const This,
 }
 /// Submission tagged with the frame it belongs to `(count, lists, frame
